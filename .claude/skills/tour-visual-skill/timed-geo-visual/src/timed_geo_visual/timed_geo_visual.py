@@ -3,13 +3,16 @@ import json
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, ValidationError, TypeAdapter
 import time
 import os as _os
 import asyncio
 import googlemaps
 import pyphoton
+from pyphoton.models import Location
 from src.timed_geo_visual.html_template import _render_html
 from functools import cache
+
 
 async def _main_async(argv: List[str] = None) -> None:
     args = _parse_cli(argv)
@@ -56,6 +59,7 @@ async def _main_async(argv: List[str] = None) -> None:
     if use_osm:
         print("Resolving locations using pyphoton client (Photon).")
         await _geocode_with_osm(events)
+        print("events after OSM geocoding:", events)
 
     html = await _render_html(
         events, title=f"Timed Geo Visual — {os.path.basename(input_path)}"
@@ -69,12 +73,17 @@ async def _main_async(argv: List[str] = None) -> None:
 
 # --- refactored helpers ---
 
+
 def _parse_cli(argv: List[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Render a timed geo visual map from a JSON itinerary"
     )
-    parser.add_argument("--input", "-i", required=True, help="Path to JSON itinerary file")
-    parser.add_argument("--output", "-o", required=True, help="Path to output HTML file")
+    parser.add_argument(
+        "--input", "-i", required=True, help="Path to JSON itinerary file"
+    )
+    parser.add_argument(
+        "--output", "-o", required=True, help="Path to output HTML file"
+    )
     parser.add_argument(
         "--geocoder",
         choices=["auto", "google", "osm", "none"],
@@ -120,7 +129,9 @@ def _backfill_location(events: List[Dict[str, Any]]) -> None:
 
 
 def _should_use_google(args: argparse.Namespace) -> bool:
-    return args.geocoder == "google" or (args.geocoder == "auto" and _os.getenv("TIMED_GEO_USE_GOOGLE") == "1")
+    return args.geocoder == "google" or (
+        args.geocoder == "auto" and _os.getenv("TIMED_GEO_USE_GOOGLE") == "1"
+    )
 
 
 def _geocode_with_google(events: List[Dict[str, Any]], gm_client: object) -> None:
@@ -149,8 +160,12 @@ def _geocode_with_google(events: List[Dict[str, Any]], gm_client: object) -> Non
                         e[lat_field] = float(loc["lat"])
                         e[lon_field] = float(loc["lng"])
                         if not e.get("display_name"):
-                            e.setdefault("display_name", results[0].get("formatted_address"))
-                        print(f"Resolved '{query}' -> {e[lat_field]},{e[lon_field]} ({src_field})")
+                            e.setdefault(
+                                "display_name", results[0].get("formatted_address")
+                            )
+                        print(
+                            f"Resolved '{query}' -> {e[lat_field]},{e[lon_field]} ({src_field})"
+                        )
                     except Exception:
                         print("Failed parsing coords in Google response for", query)
                 else:
@@ -160,7 +175,7 @@ def _geocode_with_google(events: List[Dict[str, Any]], gm_client: object) -> Non
 
 
 @cache
-def _cached_pyphoton_task(client, location: str):
+def _cached_pyphoton_task(client: pyphoton.client.Photon, location: str):
     """Return an asyncio.Task for a pyphoton query, cached per (client, location).
 
     Caching the Task ensures repeated queries for the same location reuse the same
@@ -170,13 +185,48 @@ def _cached_pyphoton_task(client, location: str):
     return loop.create_task(client.query(location, limit=1))
 
 
+# Simple pydantic models to validate/normalize pyphoton/OSM responses
+class _Geometry(BaseModel):
+    coordinates: List[float]
+
+    model_config = {"extra": "allow"}
+
+
+class _Properties(BaseModel):
+    name: Optional[str] = None
+    postcode: Optional[str] = None
+    city: Optional[str] = None
+    street: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    countrycode: Optional[str] = None
+    country_code: Optional[str] = None
+    osm_type: Optional[str] = None
+    osm_id: Optional[int] = None
+    osm_key: Optional[str] = None
+    osm_value: Optional[str] = None
+
+    model_config = {"extra": "allow"}
+
+
+class _Feature(BaseModel):
+    geometry: Optional[_Geometry] = None
+    properties: Optional[_Properties] = None
+
+    model_config = {"extra": "allow"}
+
+
 async def _geocode_with_osm(events: List[Dict[str, Any]]) -> None:
     # Helper: return a 'country' bias string from event or env, no hard-coded country names.
     def _preferred_country_for_event(ev: Dict[str, Any]) -> Optional[str]:
         # Prefer explicit fields first, then fall back to env var.
         if ev.get("country"):
             return str(ev.get("country"))
-        if ev.get("country_code") and isinstance(ev.get("country_code"), str) and len(ev.get("country_code")) == 2:
+        if (
+            ev.get("country_code")
+            and isinstance(ev.get("country_code"), str)
+            and len(ev.get("country_code")) == 2
+        ):
             return str(ev.get("country_code"))
         env_cc = _os.getenv("TIMED_GEO_DEFAULT_COUNTRY")
         if env_cc:
@@ -231,6 +281,7 @@ async def _geocode_with_osm(events: List[Dict[str, Any]]) -> None:
 
         # Apply results back to events
         for item, resp in zip(pending, results):
+            resp: Location | List[Location] | Exception | BaseException
             query = item["query"]
             e = item["event"]
             lat_field = item["lat_field"]
@@ -249,20 +300,31 @@ async def _geocode_with_osm(events: List[Dict[str, Any]]) -> None:
             else:
                 features = getattr(resp, "features", None)
 
+            print("features:", features)
+
             if not features:
                 continue
 
-            feat = features[0]
-            coords = feat.get("geometry", {}).get("coordinates")
-            props = feat.get("properties", {})
+            # Normalize features via pydantic TypeAdapter to ensure predictable shapes
+            try:
+                feats = TypeAdapter(List[_Feature]).validate_python(features)
+            except ValidationError as ve:
+                print("Failed parsing pyphoton feature(s) for", query, ve)
+                continue
+
+            if not feats:
+                continue
+
+            feat = feats[0]
+            coords = None
+            props = feat.properties or _Properties()
+            if feat.geometry and getattr(feat.geometry, "coordinates", None):
+                coords = feat.geometry.coordinates
+
             if coords and len(coords) >= 2:
                 country_ok = True
-                if pref_cc and isinstance(props, dict):
-                    c = (
-                        props.get("country")
-                        or props.get("countrycode")
-                        or props.get("country_code")
-                    )
+                if pref_cc:
+                    c = props.country or props.countrycode or props.country_code
                     if isinstance(c, str) and pref_cc.lower() not in c.lower():
                         country_ok = False
                 if country_ok:
@@ -270,7 +332,27 @@ async def _geocode_with_osm(events: List[Dict[str, Any]]) -> None:
                         e[lat_field] = float(coords[1])
                         e[lon_field] = float(coords[0])
                         if not e.get("display_name"):
-                            e.setdefault("display_name", props.get("name") or props.get("osm_value"))
+                            e.setdefault(
+                                "display_name",
+                                props.name or props.osm_value or props.osm_key,
+                            )
+
+                        # Copy common address/osm properties to the event for later inspection
+                        for k in (
+                            "postcode",
+                            "city",
+                            "street",
+                            "state",
+                            "country",
+                            "osm_type",
+                            "osm_id",
+                            "osm_key",
+                            "osm_value",
+                        ):
+                            val = getattr(props, k, None)
+                            if val is not None:
+                                e.setdefault(k, val)
+
                         print(
                             f"Resolved '{query}' -> {e[lat_field]},{e[lon_field]} ({item['src_field']} via pyphoton)"
                         )

@@ -44,6 +44,8 @@ async def _render_html(
       console.warn('Note: running this file via file:// may block network requests (CORS). Serve over http to allow geocoding and map tiles. Example: python -m http.server 8000');
     }
     const events = __EVENTS_JSON__;
+    // Helpful debug: show resolved events in the console so developers can confirm coordinates are present
+    if (typeof console !== 'undefined' && console.debug) console.debug('events', events);
 
     const map = L.map('map').setView([35.0, 136.5], 5);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -58,7 +60,7 @@ async def _render_html(
       const div = document.createElement('div');
       div.className = 'event';
       div.innerHTML = `<div class="time">${e.start_time} → ${e.end_time}</div><div class="loc">${e.location}</div><div class="details">${(e.details || '')}</div>`;
-      div.onclick = () => { if (markers[idx]) { map.setView(markers[idx].getLatLng(), 14); markers[idx].openPopup(); } };
+      // Sidebar click is enhanced later once per-event markers are known; avoid referencing global markers[] here which may not map 1:1 to events
       container.appendChild(div);
     }
 
@@ -95,6 +97,22 @@ async def _render_html(
           markers.push(marker);
         }
 
+        // If both start and end coords exist, draw a connecting line (useful for transportation events)
+        if (e.start_lat && e.start_lon && e.end_lat && e.end_lon) {
+          try {
+            const line = L.polyline([[e.start_lat, e.start_lon], [e.end_lat, e.end_lon]], {
+              color: '#0077cc',
+              weight: 2,
+              opacity: 0.75,
+              dashArray: '6 4'
+            }).addTo(map);
+            line.bindPopup(`<div><b>${e.display_name || e.location || ''}</b><div>${e.start_time} → ${e.end_time}</div><div>${e.details || ''}</div></div>`);
+            eventMarkers[i].push(line);
+          } catch (err) {
+            console.warn('polyline draw failed', err);
+          }
+        }
+
         // If this event produced no markers, annotate the sidebar entry so users know this place has no exact coordinates
         if (eventMarkers[i].length === 0) {
           const evs = document.getElementById('events').children;
@@ -128,28 +146,22 @@ async def _render_html(
 
       // wire up controls
       document.getElementById('fit-btn').onclick = () => {
-        if (markers.length > 0) {
-          const group = L.featureGroup(markers);
-          map.fitBounds(group.getBounds().pad(0.2));
-        }
+          // Build a layer list from all eventMarkers (markers + lines) so fit includes polylines
+          const layers = [];
+          for (let arr of eventMarkers) {
+            if (arr && arr.length > 0) layers.push(...arr);
+          }
+          if (layers.length > 0) {
+            const group = L.featureGroup(layers);
+            try { map.fitBounds(group.getBounds().pad(0.2)); } catch (err) { console.warn('fit bounds failed', err); }
+          }
       };
 
-      document.getElementById('scan-btn').onclick = () => {
-        const iv = parseInt(document.getElementById('scan-interval').value || '0', 10);
-        for (let j = 0; j < markers.length; j++) {
-          const run = () => {
-            try {
-              map.setView(markers[j].getLatLng(), 14);
-              markers[j].openPopup();
-            } catch (e) { console.warn('scan fail', e); }
-          };
-          if (iv > 0) setTimeout(run, j * iv); else setTimeout(run, 0);
-        }
-      };
-
-      // if we placed markers, fit map bounds to them by default
-      if (markers.length > 0) {
-        const group = L.featureGroup(markers);
+      // if we placed markers or lines, fit map bounds to them by default
+      const allLayers = [];
+      for (let arr of eventMarkers) { if (arr && arr.length > 0) allLayers.push(...arr); }
+      if (allLayers.length > 0) {
+        const group = L.featureGroup(allLayers);
         map.fitBounds(group.getBounds().pad(0.2));
       }
     })();

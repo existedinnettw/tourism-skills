@@ -57,7 +57,8 @@ def test_osm_with_pyphoton(monkeypatch):
 
     with tempfile.TemporaryDirectory() as td:
         out = os.path.join(td, "out-osm-success.html")
-        monkeypatch.setattr(timed_geo_visual, "pyphoton", FakePhotonClient())
+        # Patch pyphoton.client.Photon to return our fake client instance
+        monkeypatch.setattr(pyphoton, "client", types.SimpleNamespace(Photon=FakePhotonClient))
         timed_geo_visual.main(["--input", refs, "--output", out, "--geocoder", "osm"])
         assert os.path.exists(out)
         content = open(out, "r", encoding="utf-8").read()
@@ -87,12 +88,55 @@ async def test_osm_with_pyphoton_async(monkeypatch):
 
     with tempfile.TemporaryDirectory() as td:
         out = os.path.join(td, "out-osm-async.html")
-        monkeypatch.setattr(timed_geo_visual, "pyphoton", FakeAsyncPhotonClient())
+        # Patch pyphoton.client.Photon to return our fake async client
+        monkeypatch.setattr(pyphoton, "client", types.SimpleNamespace(Photon=FakeAsyncPhotonClient))
         await _main_async(["--input", refs, "--output", out, "--geocoder", "osm"])
         assert os.path.exists(out)
         content = open(out, "r", encoding="utf-8").read()
         # The fake async name should appear in the embedded events JSON
         assert "ASYNCPLACE" in content
+
+
+@pytest.mark.timeout(10)
+def test_osm_with_pyphoton_full_props(monkeypatch):
+    """Ensure rich pyphoton properties are attached to events and coordinates are set."""
+    refs = os.path.join(os.path.dirname(__file__), "planned-KHH-NGO-CTS.json")
+    refs = os.path.abspath(refs)
+    assert os.path.exists(refs)
+
+    class FakePhotonClient:
+        async def query(self, q, limit=1):
+            return {
+                "features": [
+                    {
+                        "geometry": {"coordinates": [136.6966916, 35.0975101]},
+                        "properties": {
+                            "name": "Bus to Nabana No Sato Park",
+                            "postcode": "511-1126",
+                            "city": "Kuwana",
+                            "street": "Route Nagashima Station",
+                            "state": "Mie Prefecture",
+                            "osm_type": "N",
+                            "osm_id": 10596542106,
+                            "osm_key": "highway",
+                            "osm_value": "bus_stop",
+                        },
+                    }
+                ]
+            }
+
+    with tempfile.TemporaryDirectory() as td:
+        out = os.path.join(td, "out-osm-fullprops.html")
+        monkeypatch.setattr(pyphoton, "client", types.SimpleNamespace(Photon=FakePhotonClient))
+        timed_geo_visual.main(["--input", refs, "--output", out, "--geocoder", "osm"])
+        assert os.path.exists(out)
+        content = open(out, "r", encoding="utf-8").read()
+        # The resolved name and some properties should appear in the embedded events JSON
+        assert "Bus to Nabana No Sato Park" in content
+        assert "511-1126" in content
+        assert "Kuwana" in content
+        # Ensure coordinates were added (lat appears)
+        assert "35.0975101" in content
 
 
 @pytest.mark.timeout(10)
