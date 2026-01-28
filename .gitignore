@@ -208,3 +208,12 @@ __marimo__/
 
 # User
 ws/*
+.agents/
+.gemini/
+.github/
+.continue/
+# .claude/
+# !.claude/skills/
+# !.claude/skills/**
+!.claude/skills/tour-visual-skill/
+!.claude/skills/tour-plan-skill/*

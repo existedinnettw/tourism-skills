@@ -12,9 +12,10 @@ We extend the basic time-location pair as trvel node, which include type and det
 travel can be classified as different types:
 
 * transportation: bus, train, flight, car rental, taxi, bike rental, walking...
-* accommodation: hotel, hostel, vacation rental, camping...
-* attraction: museum, park, historical site, event, restaurant, airport...
-  * usually stay at a location for a period of time
+* stay
+  * accommodation: hotel, hostel, vacation rental, camping...
+  * attraction: museum, park, historical site, event, restaurant, airport...
+    * usually stay at a location for a period of time
 
 Travel node should follow this format:
 
@@ -24,6 +25,8 @@ Travel node should follow this format:
   * node_prev.end_time == node_curr.start_time
     * node_curr.end_time == node_next.start_time
     * locantions between adjacent nodes fullfill space continuity
+  * transportation node and stay nodes should interleave
+    * e.g. transportation -> stay/attraction -> transportation -> stay/accommodation -> ...
 
 Following is an example of travel node sequence in JSON format:
 
@@ -37,7 +40,7 @@ Following is an example of travel node sequence in JSON format:
         "details": "In car, go to airport"
     },
     {
-        "type": "attraction",
+        "type": "stay/attraction",
         "start_time": "2023-10-01T08:00:00+08:00",
         "end_time": "2023-10-01T09:00:00+08:00",
         "location": "Kaohsiung International Airport(Xiaogang Airport), Kaohsiung, Taiwan",
@@ -51,14 +54,14 @@ Following is an example of travel node sequence in JSON format:
         "details": "Flight CI100"
     },
     {
-        "type": "accommodation",
+        "type": "stay/accommodation",
         "start_time": "2023-10-01T12:00:00+09:00",
         "end_time": "2023-10-05T12:00:00+09:00",
         "location": "Tokyo Hotel",
         "details": "Check-in at Tokyo Hotel"
     },
     {
-        "type": "attraction",
+        "type": "stay/attraction",
         "start_time": "2023-10-02T10:00:00+09:00",
         "end_time": "2023-10-02T17:00:00+09:00",
         "location": "Tokyo Disneyland",
@@ -76,7 +79,7 @@ Following is an example of travel node sequence in JSON format:
    3. User can accept or reject the suggested travel nodes, or provide additional information.
       * Agent should ask user question for more information if the travel plan is incomplete or ambiguous.
    4. Repeat until the travel plan is complete.
-4. output the completed travel plan in JSON format.
+4. output the completed travel plan in JSON format file.
 
 Agent can add additional fields to remember user thoughts of specific travel nodes, e.g.
 
@@ -100,3 +103,4 @@ This way, agent can modify the travel plan based on user preferences.
 
 * 2~3 attractions per day
 * TSP(Traveling Salesman Problem) route optimization
+* Between 10PM~8AM, 7~8hr rest time
