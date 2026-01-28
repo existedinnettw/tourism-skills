@@ -21,6 +21,9 @@ Travel node should follow this format:
 
 * time is represented by ISO 8601 format.
 * start_time <= end_time (always)
+* for stay nodes, start_location == end_location
+* for transportation nodes, start_location != end_location
+* locations should be as specific as possible, including city, district, address if possible.
 * If tourism plan is **completed**, adjacent travel nodes should satisfy:
   * node_prev.end_time == node_curr.start_time
     * node_curr.end_time == node_next.start_time
@@ -36,35 +39,40 @@ Following is an example of travel node sequence in JSON format:
         "type": "transportation",
         "start_time": "2023-10-01T07:00:00+08:00",
         "end_time": "2023-10-01T08:00:00+08:00",
-        "location": "Kaohsiung, Taiwan",
+        "start_location": "Kaohsiung, Taiwan",
+        "end_location": "Kaohsiung International Airport(Xiaogang Airport), Kaohsiung, Taiwan",
         "details": "In car, go to airport"
     },
     {
         "type": "stay/attraction",
         "start_time": "2023-10-01T08:00:00+08:00",
         "end_time": "2023-10-01T09:00:00+08:00",
-        "location": "Kaohsiung International Airport(Xiaogang Airport), Kaohsiung, Taiwan",
+        "start_location": "Kaohsiung International Airport(Xiaogang Airport), Kaohsiung, Taiwan",
+        "end_location": "Kaohsiung International Airport(Xiaogang Airport), Kaohsiung, Taiwan",
         "details": "Check-in and security check"
     },
     {
         "type": "transportation",
         "start_time": "2023-10-01T09:00:00+08:00",
         "end_time": "2023-10-01T11:00:00+08:00",
-        "location": "Flight from Kaohsiung to Tokyo",
+        "start_location": "Kaohsiung International Airport(Xiaogang Airport), Kaohsiung, Taiwan",
+        "end_location": "Tokyo International Airport(Haneda Airport), Tokyo, Japan",
         "details": "Flight CI100"
     },
     {
         "type": "stay/accommodation",
         "start_time": "2023-10-01T12:00:00+09:00",
         "end_time": "2023-10-05T12:00:00+09:00",
-        "location": "Tokyo Hotel",
+        "start_location": "Tokyo Hotel, Tokyo, Japan",
+        "end_location": "Tokyo Hotel, Tokyo, Japan",
         "details": "Check-in at Tokyo Hotel"
     },
     {
         "type": "stay/attraction",
         "start_time": "2023-10-02T10:00:00+09:00",
         "end_time": "2023-10-02T17:00:00+09:00",
-        "location": "Tokyo Disneyland",
+        "start_location": "Tokyo Disneyland, Tokyo, Japan",
+        "end_location": "Tokyo Disneyland, Tokyo, Japan",
         "details": "Visit Tokyo Disneyland"
     }
     // ...
@@ -89,7 +97,8 @@ Agent can add additional fields to remember user thoughts of specific travel nod
         "type": "transportation",
         "start_time": "2023-10-01T07:00:00+08:00",
         "end_time": "2023-10-01T08:00:00+08:00",
-        "location": "Kaohsiung, Taiwan",
+        "start_location": "Kaohsiung, Taiwan",
+        "end_location": "Kaohsiung International Airport(Xiaogang Airport), Kaohsiung, Taiwan",
         "details": "In car, go to airport",
         "cheat_sheet_": "provided by user at initial, but user can accept public transport too"
     },

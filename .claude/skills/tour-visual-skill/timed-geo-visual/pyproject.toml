@@ -8,9 +8,10 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-    "google-map-scraper>=1.0.1",
+    "googlemaps>=4.10.0",
     "jinja2>=3.1.6",
     "osmnx>=2.0.7",
+    "pyphoton @ git+https://github.com/existedinnettw/pyphoton.git@feat/async",
 ]
 
 [project.scripts]
@@ -24,5 +25,12 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
+    "pytest-timeout>=2.4.0",
     "ruff>=0.14.14",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "timeout: mark tests with a timeout",
+    "async: mark tests as asynchronous"
 ]

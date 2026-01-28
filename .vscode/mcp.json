@@ -7,6 +7,14 @@
             ],
             "type": "stdio"
         },
+        "jinko": {
+            "command": "npx",
+            "args": [
+                "jinko-mcp-dev"
+            ],
+            "env": {}
+        },
+        // "booking_com": {}
     },
     "inputs": []
 }

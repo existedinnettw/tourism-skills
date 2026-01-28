@@ -1,0 +1,26 @@
+[
+    {
+        "type": "transportation",
+        "start_time": "2026-02-11T14:50:00+09:00",
+        "end_time": "2026-02-11T18:50:00+09:00",
+        "details": "Flight KHH->NGO (arrival 18:50)",
+        "start_location": "Kaohsiung (KHH)",
+        "end_location": "Nagoya (NGO)"
+    },
+    {
+        "type": "stay/accommodation",
+        "start_time": "2026-02-11T18:50:00+09:00",
+        "end_time": "2026-02-12T08:00:00+09:00",
+        "details": "Check-in and overnight at home base",
+        "start_location": "2832 Higashikata, Kuwana, Mie 511-0811, Japan",
+        "end_location": "2832 Higashikata, Kuwana, Mie 511-0811, Japan"
+    },
+    {
+        "type": "transportation",
+        "start_time": "2026-02-12T08:00:00+09:00",
+        "end_time": "2026-02-12T08:30:00+09:00",
+        "details": "Morning drive to Nabana no Sato (approx 30 min)",
+        "start_location": "Kuwana",
+        "end_location": "Nabana no Sato (Nagashima)"
+    }
+]

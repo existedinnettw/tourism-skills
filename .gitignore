@@ -208,12 +208,41 @@ __marimo__/
 
 # User
 ws/*
+.agent/
 .agents/
 .gemini/
 .github/
 .continue/
-# .claude/
+.cline/
+.codebuddy/
+.codex/
+.commandcode/
+.crush/
+.cursor/
+.factory/
+.goose/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.opencode/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.windsurf/
+.zencoder/
+/skills/
+/.claude/skills/*
 # !.claude/skills/
 # !.claude/skills/**
-!.claude/skills/tour-visual-skill/
-!.claude/skills/tour-plan-skill/*
+!/.claude/skills/tour-visual-skill
+!/.claude/skills/tour-visual-skill/*
+!/.claude/skills/tour-plan-skill
+!/.claude/skills/tour-plan-skill/*
