@@ -6,14 +6,14 @@ from pydantic import TypeAdapter
 import os as _os
 import asyncio
 import googlemaps
-from timed_geo_visual.model import _Event, _Event_render
+from timed_geo_visual.model import _Event_render, _Event
 from src.timed_geo_visual.geocode_osm import _geocode_with_osm
 from src.timed_geo_visual.geocode_google import _geocode_with_google
 
 
-async def _render_html(events: List[_Event], title: str = "Timed Geo Visual") -> str:
+async def _render_html(events: List[_Event_render], title: str = "Timed Geo Visual") -> str:
     # Use Pydantic TypeAdapter to serialize models to JSON (handles datetimes)
-    events_json = TypeAdapter(List[Union[_Event, _Event_render]]).dump_json(events)
+    events_json = TypeAdapter(List[Union[_Event_render, _Event_render]]).dump_json(events)
     # Ensure non-ASCII characters are preserved by re-dumping with ensure_ascii=False
     parsed = json.loads(events_json)
     events_json = json.dumps(parsed, ensure_ascii=False)
@@ -97,17 +97,20 @@ async def _main_async(argv: Optional[List[str]] = None) -> None:
 
     use_osm = args.geocoder == "osm" or (args.geocoder == "auto" and not use_google)
 
+    events_render: List[_Event_render] = []
     if use_google and gm_client:
         print("Resolving locations using Google Maps Geocoding API")
         # run blocking Google geocoding in a thread to avoid blocking the event loop
-        events = await asyncio.to_thread(_geocode_with_google, events, gm_client)
+        events_render = await asyncio.to_thread(_geocode_with_google, events, gm_client)
 
     if use_osm:
         print("Resolving locations using pyphoton client (Photon).")
-        events = await _geocode_with_osm(events)
-        print("events after OSM geocoding:", events)
+        events_render = await _geocode_with_osm(events)
+        print("events after OSM geocoding:", events_render)
 
-    html = await _render_html(events, title=f"Timed Geo Visual — {os.path.basename(input_path)}")
+    html = await _render_html(
+        events_render, title=f"Timed Geo Visual — {os.path.basename(input_path)}"
+    )
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(html)

@@ -39,39 +39,6 @@ class _Event_render(BaseModel):
     end_lon: Optional[float] = None
 
 
-
-
-# Simple pydantic models to validate/normalize pyphoton/OSM responses
-class _Geometry(BaseModel):
-    coordinates: List[float]
-
-    model_config = {"extra": "allow"}
-
-
-class _Properties(BaseModel):
-    name: Optional[str] = None
-    postcode: Optional[str] = None
-    city: Optional[str] = None
-    street: Optional[str] = None
-    state: Optional[str] = None
-    country: Optional[str] = None
-    countrycode: Optional[str] = None
-    country_code: Optional[str] = None
-    osm_type: Optional[str] = None
-    osm_id: Optional[int] = None
-    osm_key: Optional[str] = None
-    osm_value: Optional[str] = None
-
-    model_config = {"extra": "allow"}
-
-
-class _Feature(BaseModel):
-    geometry: Optional[_Geometry] = None
-    properties: Optional[_Properties] = None
-
-    model_config = {"extra": "allow"}
-
-
 class _PendingItem(BaseModel):
     """Typed representation of a search we will run against pyphoton.
 

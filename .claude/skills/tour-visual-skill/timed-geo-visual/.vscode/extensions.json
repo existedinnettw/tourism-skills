@@ -1,6 +1,9 @@
 {
     "recommendations": [
         "ms-python.python",
-        "charliermarsh.ruff"
+        "charliermarsh.ruff",
+        "astral-sh.ty",
+        "ms-python.vscode-python-envs",
+        "ms-python.debugpy"
     ]
 }

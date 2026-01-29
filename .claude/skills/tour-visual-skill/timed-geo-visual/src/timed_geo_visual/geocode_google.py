@@ -1,9 +1,9 @@
 from typing import List
-from timed_geo_visual.model import _Event
+from timed_geo_visual.model import _Event, _Event_render
 import time
 
 
-def _geocode_with_google(events: List[_Event], gm_client: object) -> List[_Event]:
+def _geocode_with_google(events: List[_Event], gm_client: object) -> List[_Event_render]:
     """Pure function: return a new list of _Event with geocoded fields added (no mutation).
 
     Performs the same logic as before but operates on shallow model copies and
