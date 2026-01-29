@@ -2,7 +2,8 @@ import pyphoton
 from pyphoton.models import Location
 from timed_geo_visual.model import _Event, _Event_render
 
-from async_lru import alru_cache
+from diskcache import Cache
+from types import SimpleNamespace
 
 # from mezmorize import Cache
 from typing import List, Optional
@@ -26,10 +27,23 @@ async def _geocode_with_osm(events: List[_Event]) -> List[_Event_render]:
 
     # cache_file_name = "tour_cache.pkl"
 
-    # cache tasks per location while reusing the single client for performance
-    @alru_cache(maxsize=1024)
+    # disk-backed cache: store minimal serializable data (latitude/longitude)
+    cache = Cache(".photon_cache")
+
     async def cached_query(location: str):
-        return await client.query(location, limit=1)
+        key = str(location)
+        cached = await asyncio.to_thread(cache.get, key, default=None)
+        if cached is not None:
+            if isinstance(cached, dict):
+                return SimpleNamespace(**cached)
+            return cached
+        resp = await client.query(location, limit=1)
+        if resp:
+            payload = {"latitude": resp.latitude, "longitude": resp.longitude}
+            await asyncio.to_thread(cache.set, key, payload, expire=60 * 60 * 24)
+            return resp
+        await asyncio.to_thread(cache.set, key, None, expire=60 * 60 * 24)
+        return None
 
     # concurrency control
     max_conc = int(_os.getenv("TIMED_GEO_PHOTON_CONCURRENCY", "4"))
@@ -68,5 +82,5 @@ async def _geocode_with_osm(events: List[_Event]) -> List[_Event_render]:
     results: list[_Event_render | BaseException] = await asyncio.gather(
         *task, return_exceptions=True
     )
-    await cached_query.cache_close()
+    await asyncio.to_thread(cache.close)
     return [r for r in results if isinstance(r, _Event_render)]
