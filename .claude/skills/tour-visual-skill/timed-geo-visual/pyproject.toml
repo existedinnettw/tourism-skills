@@ -1,43 +1,48 @@
 [project]
-name = "timed-geo-visual"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-authors = [
-    { name = "insleker", email = "bkinnightskytw@gmail.com" }
-]
-requires-python = ">=3.13"
-dependencies = [
-    # "aiocache>=0.12.3",
-    # "aiofiles>=25.1.0",
-    # "async-lru>=2.1.0",
-    # "mezmorize>=0.31.0",
-    "diskcache>=5.6.3",
-    "googlemaps>=4.10.0",
-    "jinja2>=3.1.6",
-    "osmnx>=2.0.7",
-    "pydantic>=2.12.5",
-    "pyphoton @ git+https://github.com/existedinnettw/pyphoton.git@feat/async",
-]
+    name = "timed-geo-visual"
+    version = "0.1.0"
+    description = "Add your description here"
+    readme = "README.md"
+    authors = [{ name = "insleker", email = "bkinnightskytw@gmail.com" }]
+    requires-python = ">=3.13"
+    dependencies = [
+        # "aiocache>=0.12.3",
+        # "aiofiles>=25.1.0",
+        # "async-lru>=2.1.0",
+        # "mezmorize>=0.31.0",
+        "diskcache>=5.6.3",
+        "googlemaps>=4.10.0",
+        "jinja2>=3.1.6",
+        "osmnx>=2.0.7",
+        "pydantic>=2.12.5",
+        "pyphoton @ git+https://github.com/existedinnettw/pyphoton.git@feat/async",
+    ]
 
-[project.scripts]
-timed-geo-visual = "timed_geo_visual:main"
+    [project.scripts]
+        timed-geo-visual = "timed_geo_visual:main"
 
 [build-system]
-requires = ["uv_build>=0.8.12,<0.9.0"]
-build-backend = "uv_build"
+    requires = ["uv_build>=0.8.12,<0.9.0"]
+    build-backend = "uv_build"
 
 [dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-    "pytest-asyncio>=1.3.0",
-    "pytest-timeout>=2.4.0",
-    "ruff>=0.14.14",
-    "ty>=0.0.14",
-]
+    dev = [
+        "pytest>=9.0.2",
+        "pytest-asyncio>=1.3.0",
+        "pytest-playwright>=0.7.2",
+        "pytest-timeout>=2.4.0",
+        "ruff>=0.14.14",
+        "ty>=0.0.14",
+    ]
 
 [tool.pytest.ini_options]
-markers = [
-    "timeout: mark tests with a timeout",
-    "async: mark tests as asynchronous"
-]
+    addopts = ["--browser", "chromium", "--screenshot", "only-on-failure"]
+    testpaths = ["tests"]
+    markers = [
+        "timeout: mark tests with a timeout",
+        "async: mark tests as asynchronous",
+        "playwright: mark test that requires playwright",
+    ]
+    # Required configuration for pytest-asyncio with Playwright
+    asyncio_mode = "auto"
+    asyncio_default_test_loop_scope = "session"

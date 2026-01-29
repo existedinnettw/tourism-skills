@@ -46,6 +46,6 @@ def test_cli_with_no_geocoder():
         assert os.path.exists(out)
         content = open(out, "r", encoding="utf-8").read()
         # the client script should only create markers when coords are known
-        assert "if (pLat && pLon)" in content
+        assert "if (pLat != null && pLon != null)" in content
         # and unresolved locations should be noted in the sidebar
         assert "(no exact coordinates)" in content

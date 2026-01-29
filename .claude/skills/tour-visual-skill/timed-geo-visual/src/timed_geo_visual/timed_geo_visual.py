@@ -80,10 +80,6 @@ async def _main_async(argv: Optional[List[str]] = None) -> None:
 
     events = _load_events(input_path)
 
-    # At this point `events` is a list of `_Event` models. Later processing
-    # (geocoding, rendering) operates on copies of these models so we avoid
-    # mutating the originals.
-
     use_google = _should_use_google(args)
 
     gm_client = None
@@ -106,8 +102,9 @@ async def _main_async(argv: Optional[List[str]] = None) -> None:
                 use_google = False
 
     use_osm = args.geocoder == "osm" or (args.geocoder == "auto" and not use_google)
-
-    events_render: List[_Event_render] = []
+    events_render: List[_Event_render] = [
+        _Event_render.model_validate(e.model_dump()) for e in events
+    ]
     if use_google and gm_client:
         print("Resolving locations using Google Maps Geocoding API")
         # run blocking Google geocoding in a thread to avoid blocking the event loop

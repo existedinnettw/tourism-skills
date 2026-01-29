@@ -1,6 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 import os
+import datetime
 
 import pytest
 
@@ -28,8 +29,8 @@ def test_diskcache_caches_and_reuses(tmp_path, monkeypatch):
     monkeypatch.setattr(geocode_osm.pyphoton.client, "Photon", lambda: FakeClient())
 
     events = [
-        _Event(type="t", start_time=1, end_time=2, start_location="A", end_location="B", details=""),
-        _Event(type="t", start_time=3, end_time=4, start_location="A", end_location="B", details=""),
+        _Event(type="t", start_time=datetime.datetime(1970, 1, 1, 0, 0, 1), end_time=datetime.datetime(1970, 1, 1, 0, 0, 2), start_location="A", end_location="B", details=""),
+        _Event(type="t", start_time=datetime.datetime(1970, 1, 1, 0, 0, 3), end_time=datetime.datetime(1970, 1, 1, 0, 0, 4), start_location="A", end_location="B", details=""),
     ]
 
     # Run geocoding once; both locations A and B should be queried once each
@@ -69,7 +70,7 @@ def test_cache_file_created_and_cleanup(tmp_path, monkeypatch):
 
     monkeypatch.setattr(geocode_osm.pyphoton.client, "Photon", lambda: DummyClient())
 
-    events = [_Event(type="t", start_time=0, end_time=1, start_location="X", end_location="Y", details="")]
+    events = [_Event(type="t", start_time=datetime.datetime(1970, 1, 1, 0, 0, 0), end_time=datetime.datetime(1970, 1, 1, 0, 0, 1), start_location="X", end_location="Y", details="")]
     results = asyncio.run(geocode_osm._geocode_with_osm(events))
     assert len(results) == 1
 

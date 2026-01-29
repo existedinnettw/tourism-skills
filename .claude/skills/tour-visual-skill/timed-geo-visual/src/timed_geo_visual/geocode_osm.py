@@ -25,10 +25,11 @@ async def _geocode_with_osm(events: List[_Event]) -> List[_Event_render]:
     if client is None:
         raise RuntimeError("pyphoton client not available for OSM geocoding")
 
-    # cache_file_name = "tour_cache.pkl"
-
     # disk-backed cache: store minimal serializable data (latitude/longitude)
     cache = Cache(".photon_cache")
+    # concurrency control
+    max_conc = int(_os.getenv("TIMED_GEO_PHOTON_CONCURRENCY", "4"))
+    sem = asyncio.Semaphore(max_conc)
 
     async def cached_query(location: str):
         key = str(location)
@@ -37,7 +38,8 @@ async def _geocode_with_osm(events: List[_Event]) -> List[_Event_render]:
             if isinstance(cached, dict):
                 return SimpleNamespace(**cached)
             return cached
-        resp = await client.query(location, limit=1)
+        async with sem:
+            resp = await client.query(location, limit=1)
         if resp:
             payload = {"latitude": resp.latitude, "longitude": resp.longitude}
             await asyncio.to_thread(cache.set, key, payload, expire=60 * 60 * 24)
@@ -45,25 +47,21 @@ async def _geocode_with_osm(events: List[_Event]) -> List[_Event_render]:
         await asyncio.to_thread(cache.set, key, None, expire=60 * 60 * 24)
         return None
 
-    # concurrency control
-    max_conc = int(_os.getenv("TIMED_GEO_PHOTON_CONCURRENCY", "4"))
-    sem = asyncio.Semaphore(max_conc)
-
     async def per_event_query(event: _Event) -> _Event_render:
         resp_start: Optional[Location] = None
         resp_end: Optional[Location] = None
-        async with sem:
-            try:
-                resp_start = await cached_query(event.start_location)
 
-            except Exception as exc:
-                print("pyphoton query failed for", event.start_location, exc)
-        async with sem:
-            try:
-                resp_end = await cached_query(event.end_location)
+        try:
+            resp_start = await cached_query(event.start_location)
 
-            except Exception as exc:
-                print("pyphoton query failed for", event.end_location, exc)
+        except Exception as exc:
+            print("pyphoton query failed for", event.start_location, exc)
+
+        try:
+            resp_end = await cached_query(event.end_location)
+
+        except Exception as exc:
+            print("pyphoton query failed for", event.end_location, exc)
         # return (resp_start, resp_end)
         return _Event_render(
             type=event.type,

@@ -13,6 +13,7 @@ uv run python -m http.server 8000
 ## develop
 
 ```bash
+# uv run playwright install
 uv run pytest
 uvx ty check
 ```

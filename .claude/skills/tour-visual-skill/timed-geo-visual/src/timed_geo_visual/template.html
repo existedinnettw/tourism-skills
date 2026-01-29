@@ -37,6 +37,11 @@
             .event:hover {
                 background: #fafafa;
             }
+            /* Highlighted sidebar entry */
+            .event.selected {
+                background: #fff0f0;
+                border-left: 4px solid #cc0000;
+            }
             .time {
                 font-weight: 600;
                 color: #333;
@@ -90,6 +95,7 @@
             ).addTo(map);
 
             const markers = [];
+            let selectedLine = null;
 
             function addEventToSidebar(e, idx) {
                 const container = document.getElementById(
@@ -113,9 +119,9 @@
                     eventMarkers[i] = [];
 
                     // Single-point events: prefer start coords, fall back to end coords
-                    const pLat = e.start_lat || e.end_lat;
-                    const pLon = e.start_lon || e.end_lon;
-                    if (pLat && pLon) {
+                    const pLat = (e.start_lat != null ? e.start_lat : e.end_lat);
+                    const pLon = (e.start_lon != null ? e.start_lon : e.end_lon);
+                    if (pLat != null && pLon != null) {
                         const marker = L.marker([pLat, pLon])
                             .addTo(map);
                         const title = e.display_name ||
@@ -131,7 +137,7 @@
                     }
 
                     // Start/end points (new model)
-                    if (e.start_lat && e.start_lon) {
+                    if (e.start_lat != null && e.start_lon != null) {
                         const marker = L.marker([
                             e.start_lat,
                             e.start_lon,
@@ -147,7 +153,7 @@
                         eventMarkers[i].push(marker);
                         markers.push(marker);
                     }
-                    if (e.end_lat && e.end_lon) {
+                    if (e.end_lat != null && e.end_lon != null) {
                         const marker = L.marker([
                             e.end_lat,
                             e.end_lon,
@@ -166,8 +172,8 @@
 
                     // If both start and end coords exist, draw a connecting line (useful for transportation events)
                     if (
-                        e.start_lat && e.start_lon &&
-                        e.end_lat && e.end_lon
+                        e.start_lat != null && e.start_lon != null &&
+                        e.end_lat != null && e.end_lon != null
                     ) {
                         try {
                             const line = L.polyline([[
@@ -226,6 +232,21 @@
                             ev.onclick = () => {
                                 const mlist =
                                     eventMarkers[idx] || [];
+
+                                // Manage sidebar selection styling
+                                const prev = document.querySelector('.event.selected');
+                                if (prev) prev.classList.remove('selected');
+                                ev.classList.add('selected');
+
+                                // Un-highlight previously selected line (if any)
+                                if (selectedLine) {
+                                    try {
+                                        selectedLine.setStyle({ color: "#0077cc" });
+                                    } catch (err) {
+                                        console.warn("unhighlight fail", err);
+                                    }
+                                    selectedLine = null;
+                                }
                                 if (mlist.length > 0) {
                                     try {
                                         map.setView(
@@ -239,6 +260,17 @@
                                             "focus fail",
                                             err,
                                         );
+                                    }
+                                }
+                                // Highlight any polyline(s) for this event
+                                for (const m of mlist) {
+                                    if (m && m.setStyle && m instanceof L.Polyline) {
+                                        try {
+                                            m.setStyle({ color: "#cc0000" });
+                                            selectedLine = m;
+                                        } catch (err) {
+                                            console.warn("highlight fail", err);
+                                        }
                                     }
                                 }
                             };
