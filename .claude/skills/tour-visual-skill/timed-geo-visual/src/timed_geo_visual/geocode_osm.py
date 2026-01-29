@@ -1,9 +1,8 @@
 import pyphoton
 from pyphoton.models import Location
-from timed_geo_visual.model import _Event, _Event_render, _PendingItem
+from timed_geo_visual.model import _Event, _Event_render
 from functools import cache
 from typing import List, Optional
-from pydantic import ValidationError, TypeAdapter
 import asyncio
 import os as _os
 
@@ -17,83 +16,6 @@ def _cached_pyphoton_task(client: pyphoton.client.Photon, location: str):
     """
     loop = asyncio.get_running_loop()
     return loop.create_task(client.query(location, limit=1))
-
-
-def _build_pending(events: List[_Event]) -> List[_PendingItem]:
-    """Return a list of _PendingItem objects for events that need geocoding.
-
-    This extracts the logic previously embedded inline and makes it easy to
-    test and reason about.
-    """
-
-    def _preferred_country_for_event(ev: _Event) -> Optional[str]:
-        # same logic as the local helper inside _geocode_with_osm
-        if getattr(ev, "country", None):
-            return str(getattr(ev, "country"))
-        cc = getattr(ev, "country_code", None)
-        if cc and isinstance(cc, str) and len(cc) == 2:
-            return str(cc)
-        env_cc = _os.getenv("TIMED_GEO_DEFAULT_COUNTRY")
-        if env_cc:
-            return env_cc
-        return None
-
-    pending: List[_PendingItem] = []
-    for e in events:
-        for src_field, lat_field, lon_field in (
-            ("start_location", "start_lat", "start_lon"),
-            ("end_location", "end_lat", "end_lon"),
-        ):
-            if getattr(e, lat_field, None) is not None and getattr(e, lon_field, None) is not None:
-                continue
-            query = getattr(e, src_field, None) or getattr(e, "details", None)
-            if not query:
-                continue
-            pref_cc = _preferred_country_for_event(e)
-            p_query = query if not pref_cc else f"{query}, {pref_cc}"
-            # Use model_construct to avoid re-validating/copying the event dict
-            # and ensure we keep a reference to the original event object so that
-            # later mutations affect the original events list.
-            pending.append(
-                _PendingItem.model_construct(
-                    event=e,
-                    src_field=src_field,
-                    lat_field=lat_field,
-                    lon_field=lon_field,
-                    query=p_query,
-                    pref_cc=pref_cc,
-                )
-            )
-    return pending
-
-
-def _apply_location_like(obj, e, lat_field, lon_field, query, src_field, tag="pyphoton Location"):
-    """Apply a location-like object (has latitude/longitude and common properties) to an event.
-
-    Returns True if coordinates were successfully applied, False otherwise.
-    """
-    try:
-        lat = getattr(obj, "latitude", None)
-        lon = getattr(obj, "longitude", None)
-        if lat is None or lon is None:
-            return False
-        setattr(e, lat_field, float(lat))
-        setattr(e, lon_field, float(lon))
-        # Append resolved name into `details` so rendered models don't need extra fields
-        name = getattr(obj, "name", None)
-        if name:
-            if getattr(e, "details", None):
-                if name not in e.details:
-                    e.details = f"{e.details} ({name})"
-            else:
-                e.details = str(name)
-        print(
-            f"Resolved '{query}' -> {getattr(e, lat_field)},{getattr(e, lon_field)} ({src_field} via {tag})"
-        )
-        return True
-    except Exception:
-        print("Failed parsing coords in pyphoton Location for", query)
-        return False
 
 
 async def _geocode_with_osm(events: List[_Event]) -> List[_Event_render]:
@@ -110,76 +32,43 @@ async def _geocode_with_osm(events: List[_Event]) -> List[_Event_render]:
     if client is None:
         raise RuntimeError("pyphoton client not available for OSM geocoding")
 
-    # Work on shallow model copies so we don't mutate the caller's data
-    new_events = [e.model_copy(deep=False) for e in events]
-
-    # # Build typed pending items referencing models to be mutated
-    pending = _build_pending(new_events)
-
     # concurrency control
     max_conc = int(_os.getenv("TIMED_GEO_PHOTON_CONCURRENCY", "4"))
     sem = asyncio.Semaphore(max_conc)
 
-    async def _run_one(item: _PendingItem):
+    async def per_event_query(event: _Event) -> _Event_render:
+        resp_start: Optional[Location] = None
+        resp_end: Optional[Location] = None
         async with sem:
             try:
-                task = _cached_pyphoton_task(client, item.query)
-                return await task
+                task = _cached_pyphoton_task(client, event.start_location)
+                resp_start = await task
+
             except Exception as exc:
-                print("pyphoton query failed for", item.query, exc)
-                return exc
+                print("pyphoton query failed for", event.start_location, exc)
+        async with sem:
+            try:
+                task = _cached_pyphoton_task(client, event.end_location)
+                resp_end = await task
 
-    tasks = [asyncio.create_task(_run_one(item)) for item in pending]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+            except Exception as exc:
+                print("pyphoton query failed for", event.end_location, exc)
+        # return (resp_start, resp_end)
+        return _Event_render(
+            type=event.type,
+            start_time=event.start_time,
+            end_time=event.end_time,
+            start_location=event.start_location,
+            end_location=event.end_location,
+            details=event.details,
+            start_lat=resp_start.latitude if resp_start else None,
+            start_lon=resp_start.longitude if resp_start else None,
+            end_lat=resp_end.latitude if resp_end else None,
+            end_lon=resp_end.longitude if resp_end else None,
+        )
 
-    # Apply results back to events (models)
-    for item, resp in zip(pending, results):
-        query = item.query
-        e = item.event
-        lat_field = item.lat_field
-        lon_field = item.lon_field
-
-        if isinstance(resp, Exception):
-            print("pyphoton search failed for", query, resp)
-            continue
-
-        # Handle pyphoton Location objects directly
-        if isinstance(resp, Location):
-            applied = _apply_location_like(resp, e, lat_field, lon_field, query, item.src_field)
-            if not applied:
-                print("No coordinates found on pyphoton Location for", query)
-            continue
-
-        if isinstance(resp, list) and resp and isinstance(resp[0], Location):
-            applied = _apply_location_like(
-                resp[0],
-                e,
-                lat_field,
-                lon_field,
-                query,
-                item.src_field,
-                tag="pyphoton Location list",
-            )
-            if not applied:
-                print("No coordinates found on first pyphoton Location for", query)
-            continue
-
-    # Convert shallow _Event models to minimal dicts and validate as _Event_render
-    def _to_render_dict(ev: _Event) -> dict:
-        return {
-            "type": ev.type,
-            "start_time": ev.start_time,
-            "end_time": ev.end_time,
-            "start_location": getattr(ev, "start_location", ""),
-            "end_location": getattr(ev, "end_location", ""),
-            "details": getattr(ev, "details", ""),
-            "start_lat": getattr(ev, "start_lat", None),
-            "start_lon": getattr(ev, "start_lon", None),
-            "end_lat": getattr(ev, "end_lat", None),
-            "end_lon": getattr(ev, "end_lon", None),
-        }
-
-    rendered = TypeAdapter(List[_Event_render]).validate_python(
-        [_to_render_dict(ev) for ev in new_events]
+    task = [asyncio.create_task(per_event_query(event)) for event in events]
+    results: list[_Event_render | BaseException] = await asyncio.gather(
+        *task, return_exceptions=True
     )
-    return rendered
+    return [r for r in results if isinstance(r, _Event_render)]

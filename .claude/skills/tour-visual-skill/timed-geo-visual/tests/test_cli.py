@@ -7,8 +7,7 @@ import pyphoton
 from pydantic import TypeAdapter
 from timed_geo_visual.timed_geo_visual import main, _main_async
 from timed_geo_visual import timed_geo_visual
-from timed_geo_visual.model import _PendingItem, _Event
-from timed_geo_visual.geocode_osm import _build_pending
+from timed_geo_visual.model import _Event
 
 
 @pytest.mark.timeout(10)
@@ -50,23 +49,3 @@ def test_cli_with_no_geocoder():
         assert "if (pLat && pLon)" in content
         # and unresolved locations should be noted in the sidebar
         assert "(no exact coordinates)" in content
-
-
-def test_build_pending_returns_pydantic_items():
-    # verify the new helper returns typed objects for events needing geocoding
-    refs = os.path.join(os.path.dirname(__file__), "planned-KHH-NGO-CTS.json")
-    refs = os.path.abspath(refs)
-    with open(refs, "r", encoding="utf-8") as f:
-        events = json.load(f)
-
-    models = TypeAdapter(list[_Event]).validate_python(events)
-    pending = _build_pending(models)
-    assert isinstance(pending, list)
-    assert pending, "expected at least one pending item from sample events"
-    assert all(isinstance(p, _PendingItem) for p in pending)
-    # check that required attributes exist and are of expected types
-    for p in pending:
-        assert isinstance(p.query, str)
-        assert isinstance(p.src_field, str)
-        assert isinstance(p.lat_field, str)
-        assert isinstance(p.lon_field, str)

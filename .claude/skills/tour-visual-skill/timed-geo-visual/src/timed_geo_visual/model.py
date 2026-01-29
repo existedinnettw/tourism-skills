@@ -37,21 +37,3 @@ class _Event_render(BaseModel):
     start_lon: Optional[float] = None
     end_lat: Optional[float] = None
     end_lon: Optional[float] = None
-
-
-class _PendingItem(BaseModel):
-    """Typed representation of a search we will run against pyphoton.
-
-    Fields:
-    - event: the original event dict which may be mutated with lat/lon and props
-    - src_field, lat_field, lon_field: strings indicating which fields relate
-    - query: the (possibly country-appended) query string to send to pyphoton
-    - pref_cc: optional country code used as bias when selecting features
-    """
-
-    event: _Event
-    src_field: str
-    lat_field: str
-    lon_field: str
-    query: str
-    pref_cc: Optional[str] = None
