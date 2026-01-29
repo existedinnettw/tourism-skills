@@ -12,10 +12,11 @@ uv run python -m http.server 8000
 
 ## develop
 
-can debug through playright
-
 ```bash
 uv run pytest
+uvx ty check
 ```
+
+can debug even through playright
 
 <!-- TODO: compare google map -->

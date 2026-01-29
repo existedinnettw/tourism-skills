@@ -11,9 +11,13 @@ from src.timed_geo_visual.geocode_osm import _geocode_with_osm
 from src.timed_geo_visual.geocode_google import _geocode_with_google
 
 
-async def _render_html(events: List[_Event_render], title: str = "Timed Geo Visual") -> str:
+async def _render_html(
+    events: List[_Event_render], title: str = "Timed Geo Visual"
+) -> str:
     # Use Pydantic TypeAdapter to serialize models to JSON (handles datetimes)
-    events_json = TypeAdapter(List[Union[_Event_render, _Event_render]]).dump_json(events)
+    events_json = TypeAdapter(List[Union[_Event_render, _Event_render]]).dump_json(
+        events
+    )
     # Ensure non-ASCII characters are preserved by re-dumping with ensure_ascii=False
     parsed = json.loads(events_json)
     events_json = json.dumps(parsed, ensure_ascii=False)
@@ -21,7 +25,9 @@ async def _render_html(events: List[_Event_render], title: str = "Timed Geo Visu
     filepath = os.path.join(os.path.dirname(__file__), "template.html")
     with open(filepath, "r", encoding="utf-8") as file:
         html_template = file.read()
-    html = html_template.replace("__EVENTS_JSON__", events_json).replace("__TITLE__", title)
+    html = html_template.replace("__EVENTS_JSON__", events_json).replace(
+        "__TITLE__", title
+    )
     return html
 
 
@@ -32,8 +38,12 @@ def _parse_cli(argv: List[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Render a timed geo visual map from a JSON itinerary"
     )
-    parser.add_argument("--input", "-i", required=True, help="Path to JSON itinerary file")
-    parser.add_argument("--output", "-o", required=True, help="Path to output HTML file")
+    parser.add_argument(
+        "--input", "-i", required=True, help="Path to JSON itinerary file"
+    )
+    parser.add_argument(
+        "--output", "-o", required=True, help="Path to output HTML file"
+    )
     parser.add_argument(
         "--geocoder",
         choices=["auto", "google", "osm", "none"],
@@ -106,7 +116,6 @@ async def _main_async(argv: Optional[List[str]] = None) -> None:
     if use_osm:
         print("Resolving locations using pyphoton client (Photon).")
         events_render = await _geocode_with_osm(events)
-        print("events after OSM geocoding:", events_render)
 
     html = await _render_html(
         events_render, title=f"Timed Geo Visual — {os.path.basename(input_path)}"

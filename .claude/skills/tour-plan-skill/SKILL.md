@@ -23,7 +23,7 @@ Travel node should follow this format:
 * start_time <= end_time (always)
 * for stay nodes, start_location == end_location
 * for transportation nodes, start_location != end_location
-* locations should be as specific as possible, including city, district, address if possible.
+* locations should be as specific as possible, including country, city, district, address if possible.
 * If tourism plan is **completed**, adjacent travel nodes should satisfy:
   * node_prev.end_time == node_curr.start_time
     * node_curr.end_time == node_next.start_time

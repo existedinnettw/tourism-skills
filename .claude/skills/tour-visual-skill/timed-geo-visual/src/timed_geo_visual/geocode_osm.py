@@ -1,21 +1,13 @@
 import pyphoton
 from pyphoton.models import Location
 from timed_geo_visual.model import _Event, _Event_render
-from functools import cache
+
+from async_lru import alru_cache
+
+# from mezmorize import Cache
 from typing import List, Optional
 import asyncio
 import os as _os
-
-
-@cache
-def _cached_pyphoton_task(client: pyphoton.client.Photon, location: str):
-    """Return an asyncio.Task for a pyphoton query, cached per (client, location).
-
-    Caching the Task ensures repeated queries for the same location reuse the same
-    in-flight or completed Task (safe to await multiple times).
-    """
-    loop = asyncio.get_running_loop()
-    return loop.create_task(client.query(location, limit=1))
 
 
 async def _geocode_with_osm(events: List[_Event]) -> List[_Event_render]:
@@ -32,6 +24,13 @@ async def _geocode_with_osm(events: List[_Event]) -> List[_Event_render]:
     if client is None:
         raise RuntimeError("pyphoton client not available for OSM geocoding")
 
+    # cache_file_name = "tour_cache.pkl"
+
+    # cache tasks per location while reusing the single client for performance
+    @alru_cache(maxsize=1024)
+    async def cached_query(location: str):
+        return await client.query(location, limit=1)
+
     # concurrency control
     max_conc = int(_os.getenv("TIMED_GEO_PHOTON_CONCURRENCY", "4"))
     sem = asyncio.Semaphore(max_conc)
@@ -41,15 +40,13 @@ async def _geocode_with_osm(events: List[_Event]) -> List[_Event_render]:
         resp_end: Optional[Location] = None
         async with sem:
             try:
-                task = _cached_pyphoton_task(client, event.start_location)
-                resp_start = await task
+                resp_start = await cached_query(event.start_location)
 
             except Exception as exc:
                 print("pyphoton query failed for", event.start_location, exc)
         async with sem:
             try:
-                task = _cached_pyphoton_task(client, event.end_location)
-                resp_end = await task
+                resp_end = await cached_query(event.end_location)
 
             except Exception as exc:
                 print("pyphoton query failed for", event.end_location, exc)
@@ -71,4 +68,5 @@ async def _geocode_with_osm(events: List[_Event]) -> List[_Event_render]:
     results: list[_Event_render | BaseException] = await asyncio.gather(
         *task, return_exceptions=True
     )
+    await cached_query.cache_close()
     return [r for r in results if isinstance(r, _Event_render)]
