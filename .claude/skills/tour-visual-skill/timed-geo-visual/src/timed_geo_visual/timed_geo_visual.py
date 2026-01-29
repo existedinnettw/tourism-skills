@@ -1,20 +1,65 @@
 import argparse
 import json
 import os
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, ValidationError, TypeAdapter
-import time
+from typing import List, Optional, Union
+from pydantic import TypeAdapter
 import os as _os
 import asyncio
 import googlemaps
-import pyphoton
-from pyphoton.models import Location
-from src.timed_geo_visual.html_template import _render_html
-from functools import cache
+from timed_geo_visual.model import _Event, _Event_render
+from src.timed_geo_visual.geocode_osm import _geocode_with_osm
+from src.timed_geo_visual.geocode_google import _geocode_with_google
 
 
-async def _main_async(argv: List[str] = None) -> None:
+async def _render_html(events: List[_Event], title: str = "Timed Geo Visual") -> str:
+    # Use Pydantic TypeAdapter to serialize models to JSON (handles datetimes)
+    events_json = TypeAdapter(List[Union[_Event, _Event_render]]).dump_json(events)
+    # Ensure non-ASCII characters are preserved by re-dumping with ensure_ascii=False
+    parsed = json.loads(events_json)
+    events_json = json.dumps(parsed, ensure_ascii=False)
+
+    filepath = os.path.join(os.path.dirname(__file__), "template.html")
+    with open(filepath, "r", encoding="utf-8") as file:
+        html_template = file.read()
+    html = html_template.replace("__EVENTS_JSON__", events_json).replace("__TITLE__", title)
+    return html
+
+
+# --- refactored helpers ---
+
+
+def _parse_cli(argv: List[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Render a timed geo visual map from a JSON itinerary"
+    )
+    parser.add_argument("--input", "-i", required=True, help="Path to JSON itinerary file")
+    parser.add_argument("--output", "-o", required=True, help="Path to output HTML file")
+    parser.add_argument(
+        "--geocoder",
+        choices=["auto", "google", "osm", "none"],
+        default="auto",
+        help=(
+            "Geocoder to use for resolving locations before rendering (google uses "
+            "Google Maps Geocoding API; requires GOOGLE_MAPS_API_KEY)"
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def _load_events(input_path: str) -> List[_Event]:
+    with open(input_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    # Parse into Pydantic models; allow exceptions to surface to the caller
+    return TypeAdapter(List[_Event]).validate_python(data)
+
+
+def _should_use_google(args: argparse.Namespace) -> bool:
+    return args.geocoder == "google" or (
+        args.geocoder == "auto" and _os.getenv("TIMED_GEO_USE_GOOGLE") == "1"
+    )
+
+
+async def _main_async(argv: Optional[List[str]] = None) -> None:
     args = _parse_cli(argv)
 
     input_path = args.input
@@ -25,8 +70,9 @@ async def _main_async(argv: List[str] = None) -> None:
 
     events = _load_events(input_path)
 
-    _normalize_event_times(events)
-    _backfill_location(events)
+    # At this point `events` is a list of `_Event` models. Later processing
+    # (geocoding, rendering) operates on copies of these models so we avoid
+    # mutating the originals.
 
     use_google = _should_use_google(args)
 
@@ -54,16 +100,14 @@ async def _main_async(argv: List[str] = None) -> None:
     if use_google and gm_client:
         print("Resolving locations using Google Maps Geocoding API")
         # run blocking Google geocoding in a thread to avoid blocking the event loop
-        await asyncio.to_thread(_geocode_with_google, events, gm_client)
+        events = await asyncio.to_thread(_geocode_with_google, events, gm_client)
 
     if use_osm:
         print("Resolving locations using pyphoton client (Photon).")
-        await _geocode_with_osm(events)
+        events = await _geocode_with_osm(events)
         print("events after OSM geocoding:", events)
 
-    html = await _render_html(
-        events, title=f"Timed Geo Visual — {os.path.basename(input_path)}"
-    )
+    html = await _render_html(events, title=f"Timed Geo Visual — {os.path.basename(input_path)}")
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(html)
@@ -71,295 +115,12 @@ async def _main_async(argv: List[str] = None) -> None:
     print(f"Wrote map to {output_path}")
 
 
-# --- refactored helpers ---
+def main(argv: Optional[List[str]] = None) -> None:
+    """Synchronous entrypoint kept for CLI/tests; runs the async main via asyncio.
 
-
-def _parse_cli(argv: List[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Render a timed geo visual map from a JSON itinerary"
-    )
-    parser.add_argument(
-        "--input", "-i", required=True, help="Path to JSON itinerary file"
-    )
-    parser.add_argument(
-        "--output", "-o", required=True, help="Path to output HTML file"
-    )
-    parser.add_argument(
-        "--geocoder",
-        choices=["auto", "google", "osm", "none"],
-        default="auto",
-        help=(
-            "Geocoder to use for resolving locations before rendering (google uses "
-            "Google Maps Geocoding API; requires GOOGLE_MAPS_API_KEY)"
-        ),
-    )
-    return parser.parse_args(argv)
-
-
-def _load_events(input_path: str) -> List[Dict[str, Any]]:
-    with open(input_path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _normalize_event_times(events: List[Dict[str, Any]]) -> None:
-    for e in events:
-        if "start_time" in e:
-            try:
-                e["start_time"] = datetime.fromisoformat(e["start_time"]).isoformat()
-            except Exception:
-                pass
-        if "end_time" in e:
-            try:
-                e["end_time"] = datetime.fromisoformat(e["end_time"]).isoformat()
-            except Exception:
-                pass
-
-
-def _backfill_location(events: List[Dict[str, Any]]) -> None:
-    for e in events:
-        if "location" not in e:
-            start = e.get("start_location")
-            end = e.get("end_location")
-            if start and end:
-                e["location"] = f"{start} → {end}"
-            elif start:
-                e["location"] = start
-            elif end:
-                e["location"] = end
-
-
-def _should_use_google(args: argparse.Namespace) -> bool:
-    return args.geocoder == "google" or (
-        args.geocoder == "auto" and _os.getenv("TIMED_GEO_USE_GOOGLE") == "1"
-    )
-
-
-def _geocode_with_google(events: List[Dict[str, Any]], gm_client: object) -> None:
-    for e in events:
-        for src_field, lat_field, lon_field in (
-            ("location", "lat", "lon"),
-            ("start_location", "start_lat", "start_lon"),
-            ("end_location", "end_lat", "end_lon"),
-        ):
-            # skip if already resolved
-            if lat_field in e and lon_field in e:
-                continue
-            query = e.get(src_field) or e.get("details")
-            if not query:
-                continue
-            try:
-                results = gm_client.geocode(query, language="en")
-            except Exception as exc:
-                print("Google geocode failed for", query, exc)
-                continue
-
-            if results and isinstance(results, list):
-                loc = results[0].get("geometry", {}).get("location")
-                if loc and ("lat" in loc) and ("lng" in loc):
-                    try:
-                        e[lat_field] = float(loc["lat"])
-                        e[lon_field] = float(loc["lng"])
-                        if not e.get("display_name"):
-                            e.setdefault(
-                                "display_name", results[0].get("formatted_address")
-                            )
-                        print(
-                            f"Resolved '{query}' -> {e[lat_field]},{e[lon_field]} ({src_field})"
-                        )
-                    except Exception:
-                        print("Failed parsing coords in Google response for", query)
-                else:
-                    print("No coordinates found in Google response for", query)
-            # small throttle to be nice and respect rate limits
-            time.sleep(0.1)
-
-
-@cache
-def _cached_pyphoton_task(client: pyphoton.client.Photon, location: str):
-    """Return an asyncio.Task for a pyphoton query, cached per (client, location).
-
-    Caching the Task ensures repeated queries for the same location reuse the same
-    in-flight or completed Task (safe to await multiple times).
+    When invoked as a module (python -m timed_geo_visual ...), callers should
+    pass no argv so that argparse reads from sys.argv. Accepting ``None`` here
+    preserves that behavior while still supporting tests that pass explicit
+    argument lists.
     """
-    loop = asyncio.get_running_loop()
-    return loop.create_task(client.query(location, limit=1))
-
-
-# Simple pydantic models to validate/normalize pyphoton/OSM responses
-class _Geometry(BaseModel):
-    coordinates: List[float]
-
-    model_config = {"extra": "allow"}
-
-
-class _Properties(BaseModel):
-    name: Optional[str] = None
-    postcode: Optional[str] = None
-    city: Optional[str] = None
-    street: Optional[str] = None
-    state: Optional[str] = None
-    country: Optional[str] = None
-    countrycode: Optional[str] = None
-    country_code: Optional[str] = None
-    osm_type: Optional[str] = None
-    osm_id: Optional[int] = None
-    osm_key: Optional[str] = None
-    osm_value: Optional[str] = None
-
-    model_config = {"extra": "allow"}
-
-
-class _Feature(BaseModel):
-    geometry: Optional[_Geometry] = None
-    properties: Optional[_Properties] = None
-
-    model_config = {"extra": "allow"}
-
-
-async def _geocode_with_osm(events: List[Dict[str, Any]]) -> None:
-    # Helper: return a 'country' bias string from event or env, no hard-coded country names.
-    def _preferred_country_for_event(ev: Dict[str, Any]) -> Optional[str]:
-        # Prefer explicit fields first, then fall back to env var.
-        if ev.get("country"):
-            return str(ev.get("country"))
-        if (
-            ev.get("country_code")
-            and isinstance(ev.get("country_code"), str)
-            and len(ev.get("country_code")) == 2
-        ):
-            return str(ev.get("country_code"))
-        env_cc = _os.getenv("TIMED_GEO_DEFAULT_COUNTRY")
-        if env_cc:
-            return env_cc
-        return None
-
-    client = pyphoton.client.Photon()
-
-    pending = []  # list of dicts: {event, src_field, lat_field, lon_field, query, pref_cc}
-    for e in events:
-        for src_field, lat_field, lon_field in (
-            ("location", "lat", "lon"),
-            ("start_location", "start_lat", "start_lon"),
-            ("end_location", "end_lat", "end_lon"),
-        ):
-            if lat_field in e and lon_field in e:
-                continue
-            query = e.get(src_field) or e.get("details")
-            if not query:
-                continue
-            pref_cc = _preferred_country_for_event(e)
-            p_query = query if not pref_cc else f"{query}, {pref_cc}"
-            pending.append(
-                {
-                    "event": e,
-                    "src_field": src_field,
-                    "lat_field": lat_field,
-                    "lon_field": lon_field,
-                    "query": p_query,
-                    "pref_cc": pref_cc,
-                }
-            )
-
-    if pending and client is not None:
-        # concurrency control
-        max_conc = int(_os.getenv("TIMED_GEO_PHOTON_CONCURRENCY", "8"))
-        sem = asyncio.Semaphore(max_conc)
-
-        async def _run_one(item):
-            async with sem:
-                location = item["query"]
-                try:
-                    print("Querying pyphoton for", location)
-                    task = _cached_pyphoton_task(client, location)
-                    return await task
-                except Exception as exc:
-                    print("pyphoton query failed for", location, exc)
-                    return exc
-
-        tasks = [asyncio.create_task(_run_one(item)) for item in pending]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Apply results back to events
-        for item, resp in zip(pending, results):
-            resp: Location | List[Location] | Exception | BaseException
-            query = item["query"]
-            e = item["event"]
-            lat_field = item["lat_field"]
-            lon_field = item["lon_field"]
-            pref_cc = item["pref_cc"]
-
-            if isinstance(resp, Exception):
-                print("pyphoton search failed for", query, resp)
-                continue
-
-            features = None
-            if isinstance(resp, dict):
-                features = resp.get("features")
-            elif isinstance(resp, list):
-                features = resp
-            else:
-                features = getattr(resp, "features", None)
-
-            print("features:", features)
-
-            if not features:
-                continue
-
-            # Normalize features via pydantic TypeAdapter to ensure predictable shapes
-            try:
-                feats = TypeAdapter(List[_Feature]).validate_python(features)
-            except ValidationError as ve:
-                print("Failed parsing pyphoton feature(s) for", query, ve)
-                continue
-
-            if not feats:
-                continue
-
-            feat = feats[0]
-            coords = None
-            props = feat.properties or _Properties()
-            if feat.geometry and getattr(feat.geometry, "coordinates", None):
-                coords = feat.geometry.coordinates
-
-            if coords and len(coords) >= 2:
-                country_ok = True
-                if pref_cc:
-                    c = props.country or props.countrycode or props.country_code
-                    if isinstance(c, str) and pref_cc.lower() not in c.lower():
-                        country_ok = False
-                if country_ok:
-                    try:
-                        e[lat_field] = float(coords[1])
-                        e[lon_field] = float(coords[0])
-                        if not e.get("display_name"):
-                            e.setdefault(
-                                "display_name",
-                                props.name or props.osm_value or props.osm_key,
-                            )
-
-                        # Copy common address/osm properties to the event for later inspection
-                        for k in (
-                            "postcode",
-                            "city",
-                            "street",
-                            "state",
-                            "country",
-                            "osm_type",
-                            "osm_id",
-                            "osm_key",
-                            "osm_value",
-                        ):
-                            val = getattr(props, k, None)
-                            if val is not None:
-                                e.setdefault(k, val)
-
-                        print(
-                            f"Resolved '{query}' -> {e[lat_field]},{e[lon_field]} ({item['src_field']} via pyphoton)"
-                        )
-                    except Exception:
-                        print("Failed parsing coords in pyphoton response for", query)
-
-
-def main(argv: List[str] = None) -> None:
-    """Synchronous entrypoint kept for CLI/tests; runs the async main via asyncio."""
     return asyncio.run(_main_async(argv))
